@@ -1,0 +1,146 @@
+---
+title: "AKFIN_WebService"
+author: "Jordan Watson"
+date: "1/31/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message=FALSE,warning=FALSE)
+```
+
+Satellite SST data from the NOAA Coral Reef Watch Program were accessed via the NOAA Coast Watch West Coast Node ERDDAP server (https://coastwatch.pfeg.noaa.gov/erddap/griddap/NOAA_DHW.html) for April 1985 - September 2020.  Detailed methods are online, including maps of the spatial strata and processing the data in R (github.com/jordanwatson/EcosystemStatusReports/tree/master/SST).
+
+The CRW dataset is available through multiple different ERDDAPs. The CRW dataset is currently only available (as far as I know) with longitudes -180 to 180 (as opposed to 0 to 360) so we pull the data in two separate chunks, a positive and negative longitude pull. I am only downloading the CRW_SST column but there are other columns that may be of interest to others (e.g., sst anomaly and sea ice). For more information, visit the Coastwatch site (https://coastwatch.pfeg.noaa.gov/erddap/griddap/NOAA_DHW.html) or the Coral Reef Watch site (https://coralreefwatch.noaa.gov/).
+
+## Web Service
+AKFIN has created a set of web services or web APIs for accessing the pre-summarized / spatially aggregated data for a set of different ecosystem and management areas. AKFIN downloads the CRW satellite SST dataset daily for the spatial extent of Alaska. Files are downloaded daily as two separate netCDF files - one for positive and one for negative longitudes. The daily data are then clipped by merging them with a spatial lookup table that encompasses the exclusive economic zone (EEZ) of Alaska. The data are merged into a single daily gridded dataset that includes 212,813 temperature records for each day. We have identified several spatial strata that are of particular interest from either the ecosystem or management perspective. These fields in the data are referred to as *Ecosystem_sub* or *nmfsarea*. The goal of the AKFIN web service is to streamline access to the average daily temperatures within each of the relevant strata.
+
+**Jordan - copy the code from the ESR_methods document to produce maps of the NMFS Areas and the Ecosystem_sub areas**
+Blah blah blah regions regions regions. 
+
+**Ecosystem_sub**
+**nmfsareas**
+
+```{r}
+library(httr)
+library(tidyverse)
+library(lubridate)
+```
+
+
+```{r cars}
+lkp <- readRDS("Data/crwsst_spatial_lookup_table.RDS") 
+head(lkp)
+```
+
+The **Ecosystem_sub** field in our lookup table contains all of the different ecosystem regions that can be queried from the data. Note that not every point in our dataset falls within an ecosystem region and thus NAs do exist in the data.
+
+For subregions in the Bering Sea and Gulf of Alaska, the query filters only data where water depth is between 10 and 200m. For the Aleutian Islands, a depth filter does not exist. Analysts that are interested in obtaining data that have not been filtered can contact the authors of this report. 
+
+```{r}
+unique(lkp$Ecosystem_sub)
+```
+
+The web service simply enables us to query data using a URl, where the URL itself contains information for querying data from the server. In the first example we will query the URL, "https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Southeastern%20Bering%20Sea", where "ecosystem_sub_crw_avg_sst?" is the name of the dataset we are querying. This is the daily CRW SST dataset, which has been averaged by the field ecosystem_sub. As noted previously, there are seven *ecosystem_sub* options. To query the data for the "Southeastern Bering Sea", for example, add "ecosystem_sub=Southeastern%20Bering%20Sea", where a "?" separates the dataset name from the query criteria and spaces are fill by "%20". The default behavior is to pull a single record, the most recent in the data set. The web service encodes the data as "json" so R must be told how to decode the data using the type = "application/json" argument. The default beavior returns a list. 
+
+```{r}
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Southeastern%20Bering%20Sea'), type = "application/json")
+```
+ 
+Instead of a list, these data can easily be converted to a data frame. 
+
+```{r}
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Southeastern%20Bering%20Sea'), type = "application/json") %>% 
+  data.frame
+```
+
+To query multiple values of a parameter, separate the values by a comma. For example, to query the Southeastern and the Northern Bering Sea data:
+
+```{r}
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Southeastern%20Bering%20Sea,Northern%20Bering%20Sea'), type = "application/json") %>% 
+  data.frame
+```
+
+Note that this was not likely the desired format for your output. It has created a new set of columns for each of the parameter values. To get these data in long format instead, bind the rows together, as though you are collapsing a list. 
+
+```{r}
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Southeastern%20Bering%20Sea,Northern%20Bering%20Sea'), type = "application/json") %>% 
+  bind_rows
+```
+
+
+It is unlikely that you want a single temperature record. To instead query a time period, the user can specify formats in several ways. Add a new parameter to the URL with an "&" delimiter. We can query a specific date by entering a value for the read_date field. Note that while the read_date field includes a time component, it is not necessary to specify this in the query. You can then specify a number of days prior to this date using a "days_back" parameter specification. In this case, we start on 2010-05-22 and include the prior two days.
+
+```{r}
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Central%20Aleutians,Eastern%20Aleutians&read_date=20100522&days_back=2'), type = "application/json") %>% 
+  bind_rows 
+```
+
+By omitting the specification of a particular date, the query will count back from the most recent date.
+
+```{r}
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Central%20Aleutians,Eastern%20Aleutians&days_back=2'), type = "application/json") %>% 
+  bind_rows 
+```
+
+You can also specify a custom date period. Most users will want to query the entire duration of the time series, which for the CRW SST dataset begins on 1985-04-01. This start may soon be revised forward to 1985-01-01. To query a specific range, specify the "start_date" and "end_date". I'll just show a snippet of this next code chunk because it will put the data into columns instead of rows...about 65,000 columns.
+
+```{r,eval=FALSE}
+data <- httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Eastern%20Gulf%20of%20Alaska&start_date=19850401&end_date=20210130'), type = "application/json") %>% 
+  data.frame
+
+data[,1:10]
+```
+
+Note that simply specifying a start_date will not automatically query the duration of the time series. The below query returns zero rows. 
+
+```{r}
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Eastern%20Gulf%20of%20Alaska&start_date=19850401'), type = "application/json") %>% 
+  data.frame
+```
+
+However, if you do not know the most recent date of the time series, you can choose an end date some time far in the future and it will query all of the data that exist without an error. 
+
+```{r}
+data <- httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Eastern%20Gulf%20of%20Alaska&start_date=19850401&end_date=20220101'), type = "application/json") %>% 
+  bind_rows
+
+head(data)
+```
+
+We can quickly see that the above query yielded more than 13,000 rows of data (i.e., daily data from 1985-04-01 to present).
+
+```{r}
+dim(data)
+```
+
+Putting the pieces all together, the data can be queried directly from AKFIN and saved, manipulated, or visualized directly. 
+
+```{r}
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Eastern%20Gulf%20of%20Alaska,Eastern%20Aleutians&start_date=19850401&end_date=20220101'), type = "application/json") %>% 
+  bind_rows %>% 
+  mutate(date=as_date(READ_DATE)) %>% 
+  ggplot(aes(date,MEANSST)) + 
+  geom_line() + 
+  facet_wrap(~ECOSYSTEM_SUB)
+```
+
+```{r}
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Eastern%20Gulf%20of%20Alaska&start_date=19850401&end_date=20220101'), type = "application/json") %>% 
+  bind_rows %>% 
+  mutate(date=as_date(READ_DATE)) %>% 
+  ggplot(aes(date,MEANSST)) + 
+  geom_line()
+```
+
+An alternative query method is to pull data by NMFS area. These areas are particuarly relevant to stock assessment scientists. Currently, NMFS areas can be queried individually (daily means calculated for each NMFS area). If individual users / assessment authors would prefer means calculated using the raw data for multiple areas pooled, they can contact the authors and we can arrange for custom aggregates. 
+
+```{r}
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/nmfs_area_crw_avg_sst?nmfs_area=400,508,509&start_date=19850401&end_date=20220101'), type = "application/json") %>% 
+  bind_rows %>% 
+  mutate(date=as_date(READ_DATE)) %>% 
+  ggplot(aes(date,MEANSST)) + 
+  geom_line() + 
+  facet_wrap(~NMFSAREA)
+```
