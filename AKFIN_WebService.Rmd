@@ -42,7 +42,7 @@ For subregions in the Bering Sea and Gulf of Alaska, the query filters only data
 unique(lkp$Ecosystem_sub)
 ```
 
-The web service simply enables us to query data using a URl, where the URL itself contains information for querying data from the server. In the first example we will query the URL, "https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Southeastern%20Bering%20Sea", where "ecosystem_sub_crw_avg_sst?" is the name of the dataset we are querying. This is the daily CRW SST dataset, which has been averaged by the field ecosystem_sub. As noted previously, there are seven *ecosystem_sub* options. To query the data for the "Southeastern Bering Sea", for example, add "ecosystem_sub=Southeastern%20Bering%20Sea", where a "?" separates the dataset name from the query criteria and spaces are fill by "%20". The default behavior is to pull a single record, the most recent in the data set. The web service encodes the data as "json" so R must be told how to decode the data using the type = "application/json" argument. The default beavior returns a list. 
+The web service simply enables us to query data using a URL, where the URL itself contains information for querying data from the server. In the first example we will query the URL, "https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Southeastern%20Bering%20Sea", where "ecosystem_sub_crw_avg_sst?" is the name of the dataset we are querying. This is the daily CRW SST dataset, which has been averaged by the field ecosystem_sub. As noted previously, there are seven *ecosystem_sub* options. To query the data for the "Southeastern Bering Sea", for example, add "ecosystem_sub=Southeastern%20Bering%20Sea", where a "?" separates the dataset name from the query criteria and spaces are filled by "%20". The default behavior is to pull a single record, the most recent in the data set. The web service encodes the data as "json" so R must be told how to decode the data using the type = "application/json" argument. The default behavior returns a list. 
 
 ```{r}
 httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Southeastern%20Bering%20Sea'), type = "application/json")
@@ -52,7 +52,7 @@ Instead of a list, these data can easily be converted to a data frame.
 
 ```{r}
 httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_sub_crw_avg_sst?ecosystem_sub=Southeastern%20Bering%20Sea'), type = "application/json") %>% 
-  data.frame
+  bind_rows
 ```
 
 To query multiple values of a parameter, separate the values by a comma. For example, to query the Southeastern and the Northern Bering Sea data:
@@ -137,10 +137,40 @@ httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/ecosystem_
 An alternative query method is to pull data by NMFS area. These areas are particuarly relevant to stock assessment scientists. Currently, NMFS areas can be queried individually (daily means calculated for each NMFS area). If individual users / assessment authors would prefer means calculated using the raw data for multiple areas pooled, they can contact the authors and we can arrange for custom aggregates. 
 
 ```{r}
-httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/nmfs_area_crw_avg_sst?nmfs_area=400,508,509&start_date=19850401&end_date=20220101'), type = "application/json") %>% 
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/nmfs_area_crw_avg_sst?nmfs_area=400,509&start_date=19850401&end_date=20220101'), type = "application/json") %>% 
   bind_rows %>% 
   mutate(date=as_date(READ_DATE)) %>% 
   ggplot(aes(date,MEANSST)) + 
   geom_line() + 
+  facet_wrap(~NMFSAREA)
+```
+
+One could alternatively query and summarize data by month (week, year, etc) by simply grouping and summarizing the data in-line.
+
+```{r}
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/nmfs_area_crw_avg_sst?nmfs_area=400,509&start_date=19850401&end_date=20220101'), type = "application/json") %>% 
+  bind_rows %>% 
+  mutate(date=as_date(READ_DATE),
+         yearmo=floor_date(date,"month")) %>%  
+  group_by(yearmo,NMFSAREA) %>% 
+  summarise(meansst=mean(MEANSST)) %>% 
+  ggplot(aes(yearmo,meansst)) + 
+  geom_line() + 
+  facet_wrap(~NMFSAREA)
+```
+
+
+One could alternatively query and summarize data by year by simply grouping and summarizing the data in-line.
+
+```{r}
+httr::content(httr::GET('https://apex.psmfc.org/akfin/data_marts/akmp/nmfs_area_crw_avg_sst?nmfs_area=400,509&start_date=19850401&end_date=20220101'), type = "application/json") %>% 
+  bind_rows %>% 
+  mutate(date=as_date(READ_DATE),
+         YEAR=as.numeric(YEAR)) %>%  
+  group_by(YEAR,NMFSAREA) %>% 
+  summarise(meansst=mean(MEANSST)) %>% 
+  ggplot(aes(YEAR,meansst)) + 
+  geom_line() + 
+  geom_smooth() +
   facet_wrap(~NMFSAREA)
 ```
